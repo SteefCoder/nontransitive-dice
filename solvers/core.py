@@ -1,8 +1,6 @@
-from __future__ import annotations
-
-from enum import auto, Enum
-from functools import cached_property, cache
+from functools import cached_property, cache, wraps
 from typing import Callable, TypeVar
+from contextlib import contextmanager
 
 import gurobipy as gp
 
@@ -11,38 +9,29 @@ from diceset import DiceSet
 Var = gp.Var
 VarDict = gp.tupledict[int, gp.Var]
 VarDict2D = gp.tupledict[tuple[int, int], gp.Var]
-VarDict3D = gp.tupledict[tuple[int, int], gp.Var]
+VarDict3D = gp.tupledict[tuple[int, int, int], gp.Var]
 
 
-class Objective(Enum):
-    MAX_MIN_RATIO = auto()
-    MAX_AVG_RATIO = auto()
-    MAX_WINLOSS = auto()
-    MIN_MAX_VALUE = auto()
-    MIN_MAX_REPEATS = auto()
-    MIN_AVG_REPEATS = auto()
-
-
-class Constraint(Enum):
-    NO_SKIP_VALUES = auto()
-    EQUAL_MEAN = auto()
-    IS_NONTRANSITIVE = auto()
-    MAX_REPEAT = auto()
-
-
-def enum_dice(faces: list[int]):
-    for i in range(len(faces)):
+def iter_dice(faces: list[int]):
+    for i, fi in enumerate(faces):
         j = (i + 1) % len(faces)
-        yield i, j, faces[i], faces[j]
+        yield i, j, fi, faces[j]
 
 
 T = TypeVar("T")
+V = TypeVar("V")
 
 def lazy_var(name: str, dependencies: list[str] | None = None):
     dependencies = dependencies or []
 
     def decorator(func: Callable[..., T]) -> cached_property[T]:
-        wrapper = cached_property(func)
+        @cached_property
+        def wrapper(self):
+            if not self._build_started:
+                raise Exception("Accessing lazy variable before build start")
+            self.variables.append(name)
+            return func(self)
+
         wrapper._type = "var"  # type: ignore[attr-defined]
         wrapper._name = name  # type: ignore[attr-defined]
         wrapper._dependencies = dependencies  # type: ignore[attr-defined]
@@ -50,23 +39,34 @@ def lazy_var(name: str, dependencies: list[str] | None = None):
 
     return decorator
 
-def constraint(name: str, dependencies: list[str] | None = None):
+def lazy_constraint(name: str, dependencies: list[str] | None = None):
     dependencies = dependencies or []
 
-    def decorator(func: Callable[..., T]):
-        wrapper = cache(func)
+    def decorator(func):
+        @wraps(func)
+        @cache
+        def wrapper(self, *args, **kwargs):
+            if not self._build_started:
+                raise Exception("Accessing lazy constraint before build start")
+            return func(self, *args, **kwargs)
+            
         wrapper._type = "constraint"  # type: ignore[attr-defined]
         wrapper._name = name  # type: ignore[attr-defined]
         wrapper._dependencies = dependencies  # type: ignore[attr-defined]
+
         return wrapper
 
     return decorator
 
-def objective(name: str, dependencies: list[str] | None = None):
+def lazy_objective(name: str, dependencies: list[str] | None = None):
     dependencies = dependencies or []
 
-    def decorator(func: Callable[..., T]):
-        wrapper = cached_property(func)
+    def decorator(func: Callable[..., T]) -> cached_property[T]:
+        @cached_property
+        def wrapper(self):
+            if not self._build_started:
+                raise Exception("Accessing lazy objective before build start")
+            return func(self)
         wrapper._type = "objective"  # type: ignore[attr-defined]
         wrapper._name = name  # type: ignore[attr-defined]
         wrapper._dependencies = dependencies  # type: ignore[attr-defined]
@@ -94,18 +94,24 @@ class DiceSolver:
         self.constraints = []
         self.variables = []
 
+        self._build_started = False
+
         # TODO -- recurse through these and detect circular dependencies
         self._dependencies = {}
         self._constraint_fns = {}
         self._objective_fns = {}
-        for attr in self.__dict__.values():
+        for name in dir(self):
+            if not hasattr(self.__class__, name):
+                continue
+
+            attr = getattr(self.__class__, name)
             if not hasattr(attr, "_type"):
                 continue
 
             if attr._type == "constraint":
-                self._constraint_fns[attr._name] = attr
+                self._constraint_fns[attr._name] = name
             elif attr._type == "objective":
-                self._objective_fns[attr._name] = attr
+                self._objective_fns[attr._name] = name
 
             self._dependencies[attr._name] = attr._dependencies
         
@@ -122,17 +128,37 @@ class DiceSolver:
 
         self.constraints.append((constraint,) + args)
     
-    def build(self) -> None:
+    def _build(self) -> None:
+        self._build_started = True
+
         for constraint, *args in self.constraints:
-            self._constraint_fns[constraint](self, *args)
+            fn = getattr(self, self._constraint_fns[constraint])
+            fn(*args)
         
         last_priority = len(self.objectives)
         for i, (obj, p, w) in enumerate(self.objectives):
             if p is None:
                 p = last_priority - 1
             last_priority = p
-            expr = self._objective_fns[obj](self)
+            expr = getattr(self, self._objective_fns[obj])
             self.model.setObjectiveN(expr, i, p, w)
 
-    def solve(self) -> DiceSet:
+    def _get_result(self) -> DiceSet:
         raise NotImplementedError
+    
+    @contextmanager
+    def build(self):
+        if not self._build_started:
+            self._build()
+
+        try:
+            yield self
+        finally:
+            self.model.close()
+
+    def solve(self) -> DiceSet:
+        if not self._build_started:
+            self._build()
+
+        self.model.optimize()
+        return self._get_result()
