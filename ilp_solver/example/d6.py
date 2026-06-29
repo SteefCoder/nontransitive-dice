@@ -7,8 +7,10 @@ def main():
     solver.add_constraint("max_repeat", 1)
     with solver.build():
         dice = solver.solve()
-        print(dice)
-        print(dice.count_win_ratios())
+        if dice:
+            print(dice)
+            print(dice.count_win_ratios())
+
 
 if __name__ == '__main__':
     main()

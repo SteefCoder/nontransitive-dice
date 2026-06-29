@@ -1,12 +1,35 @@
 import gurobipy as gp
 
-from solvers.core import DiceSolver, lazy_var, lazy_constraint, lazy_objective, Var, VarDict, VarDict2D, VarDict3D, iter_dice
+from core.core import SolverBase, lazy_var, lazy_constraint, lazy_objective
+from core.types import Var, Var1D, Var2D, Var3D
 from diceset import DiceSet
 
-class GeneralDiceSolver(DiceSolver):
+
+def iter_dice(faces: list[int]):
+    for i, fi in enumerate(faces):
+        j = (i + 1) % len(faces)
+        yield i, j, fi, faces[j]
+
+
+class GeneralDiceSolver(SolverBase):
+    def __init__(self, faces: int | list[int], dice: int | None = None, min_value: int = 1, max_value: int | None = None) -> None:
+        if isinstance(faces, int):
+            if dice is None:
+                raise ValueError("The number of dice cannot be inferred")
+            self.faces = [faces] * dice
+        else:
+            self.faces = list(faces)
+
+        self.dice = len(self.faces)
+        max_value = max_value if max_value is not None else sum(self.faces)
+        self.values = list(range(min_value, max_value + 1))
+        self.value_idxs = list(range(len(self.values)))
+        super().__init__()
+        
     @lazy_var("r", dependencies=["w"])
     def _r(self) -> Var:
         # r is the minimum win ratio of i against (i + 1) % n
+        # proven that r <= 0.75
         r = self.model.addVar(0, 0.75, name="r")
         for i, j, fi, fj in iter_dice(self.faces):
             self.model.addConstr(
@@ -18,35 +41,6 @@ class GeneralDiceSolver(DiceSolver):
             )
         return r
     
-    @lazy_var("q", dependencies=["w", "w2"])
-    def _q(self) -> gp.Var:
-        q = self.model.addVar(0, 1, name="q")
-        for i, j, fi, fj in iter_dice(self.faces):
-            self.model.addConstr(
-                # gp.quicksum(
-                #     self._w2[i, k, l]
-                #     for k in range(fi)
-                #     for l in range(fj)
-                # ) <= q * gp.quicksum(
-                #     self._w[i, k, l]
-                #     for k in range(fi)
-                #     for l in range(fj)
-                # )
-                gp.quicksum(
-                    self._w[i, k, l] - self._w2[i, k, l]
-                    for k in range(fi)
-                    for l in range(fj)
-                ) >= q * fi * fj
-            )
-            self.model.addConstr(
-                gp.quicksum(
-                    self._w[i, k, l]
-                    for k in range(fi)
-                    for l in range(fj)
-                ) >= 1
-            )
-        return q
-
     @lazy_var("m", dependencies=["x"])
     def _m(self) -> gp.Var:
         # m is the highest number used
@@ -57,7 +51,7 @@ class GeneralDiceSolver(DiceSolver):
         return m
 
     @lazy_var("u", dependencies=["x"])
-    def _u(self) -> VarDict3D:
+    def _u(self) -> Var3D:
         # u = 1 if the kth face of the ith dice is the vi'th value
         u = gp.tupledict()
         for i in range(self.dice):
@@ -73,7 +67,7 @@ class GeneralDiceSolver(DiceSolver):
         return u
     
     @lazy_var("w", dependencies=["x"])
-    def _w(self) -> VarDict3D:
+    def _w(self) -> Var3D:
         # w = 1 if x[i, k] > x[j, l]
         w = gp.tupledict()
         for i, j, fi, fj in iter_dice(self.faces):
@@ -100,36 +94,8 @@ class GeneralDiceSolver(DiceSolver):
                     
         return w
     
-    @lazy_var("w2", dependencies=["x"])
-    def _w2(self) -> VarDict3D:
-        # w = 1 if x[i, k] > x[j, l]
-        w = gp.tupledict()
-        for i, j, fi, fj in iter_dice(self.faces):
-            for k in range(fi):
-                for l in range(fj):
-                    w[i, k, l] = self.model.addVar(vtype=gp.GRB.BINARY, name=f"w2[{i},{k},{l}]")
-                    self.model.addGenConstrIndicator(
-                        w[i, k, l], True,
-                        self._x[j, l] - self._x[i, k],
-                        gp.GRB.GREATER_EQUAL, 1
-                    )
-                    self.model.addGenConstrIndicator(
-                        w[i, k, l], False,
-                        self._x[j, l] - self._x[i, k],
-                        gp.GRB.LESS_EQUAL, 0
-                    )
-                    
-                for l in range(fj - 1):
-                    self.model.addConstr(w[i, k, l + 1] >= w[i, k, l])
-                    
-            for k in range(fi - 1):
-                for l in range(fj):
-                    self.model.addConstr(w[i, k, l] >= w[i, k + 1, l])
-                    
-        return w
-
     @lazy_var("x")
-    def _x(self) -> VarDict2D:
+    def _x(self) -> Var2D:
         # x[i, k] is the kth number on the ith dice
         x = gp.tupledict()
         for i in range(self.dice):
@@ -140,7 +106,7 @@ class GeneralDiceSolver(DiceSolver):
         return x
 
     @lazy_var("y", dependencies=["u"])
-    def _y(self) -> VarDict:
+    def _y(self) -> Var1D:
         # y = 1 if v is used in general
         y = self.model.addVars(len(self.values), vtype=gp.GRB.BINARY, name="y")
         for vi in self.value_idxs:
@@ -150,30 +116,8 @@ class GeneralDiceSolver(DiceSolver):
                 for k in range(self.faces[i])
             )
             self.model.addConstr(s >= y[vi])
-            # self.model.addConstr(y[vi] * sum(self.faces) >= s)
+            self.model.addConstr(y[vi] * sum(self.faces) >= s)
         return y
-    
-    @lazy_var("z", dependencies=["u"])
-    def _z(self) -> VarDict:
-        # z is the maximum amount of times a value is repeated on dice i,
-        z = self.model.addVars(self.dice, lb=0, ub=max(self.faces), vtype=gp.GRB.INTEGER, name="z")
-
-        for i in range(self.dice):
-            for vi in self.value_idxs:
-                self.model.addConstr(
-                    z[i] >= gp.quicksum(self._u[i, k, vi] for k in range(self.faces[i]))
-                )
-            self.model.addConstr(z[i] <= self.faces[i])
-        return z
-
-    @lazy_var("z2", dependencies=["z"])
-    def _z2(self) -> gp.Var:
-        # z2 is the max of z1
-        z = self.model.addVar(0, max(self.faces), vtype=gp.GRB.INTEGER, name="z2")
-
-        self.model.addGenConstrMax(z, self._z)
-
-        return z
     
     @lazy_objective("max_min_ratio", dependencies=["r"])
     def _max_min_ratio(self):
@@ -187,17 +131,9 @@ class GeneralDiceSolver(DiceSolver):
     def _min_max_value(self):
         return self._m
 
-    @lazy_objective("min_max_repeats", dependencies=["z2"])
-    def _min_max_repeats(self):
-        return self._z2
-
     @lazy_objective("min_avg_repeats", dependencies=["z2"])
     def _min_avg_repeats(self):
         return -gp.quicksum(self._y)
-
-    @lazy_objective("max_winloss", dependencies=["z2"])
-    def _max_winloss(self):
-        return -self._q
 
     @lazy_constraint("no_skip_values", dependencies=["m", "y"])
     def _no_skip_values(self):
@@ -229,8 +165,7 @@ class GeneralDiceSolver(DiceSolver):
         self.values = values
         self.value_idxs = list(range(len(values)))
 
-    @lazy_constraint("set_start", dependencies=["x"])
-    def set_start(self, dice: DiceSet) -> None:
+    def set_start(self, dice: DiceSet):
         for i, d in enumerate(dice.dice):
             for k, v in enumerate(d):
                 self._x[i, k].Start = v
