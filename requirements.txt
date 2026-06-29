@@ -1,1 +1,5 @@
 gurobipy==13.0.2
+numpy==2.5.0
+python-sat==1.9.dev5
+six==1.17.0
+tqdm==4.68.3
