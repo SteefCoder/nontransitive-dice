@@ -17,4 +17,5 @@ def qrs(p: int) -> list[int]:
 
 def qr_tournament(p: int) -> list[list[int]]:
     assert p % 4 == 3 and is_prime(p)
-    return [[int((j - i) % p in qrs(p)) for j in range(p)] for i in range(p)]
+    QR = qrs(p)
+    return [[int((j - i) % p in QR) for j in range(p)] for i in range(p)]
