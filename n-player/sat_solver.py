@@ -33,7 +33,6 @@ def solve(tournament, d):
     solver.add_clause([pool.id('true')])
     solver.add_clause([-pool.id('false')])
 
-    # # Converse: [X,Y]_{i,j} <-> not [Y,X]_{j,i}
     for X in tqdm(range(n)):
         for Y in range(X + 1, n):
             if X == Y: continue
@@ -43,26 +42,15 @@ def solve(tournament, d):
                     V(X, Y, i, j)
                     V(Y, X, j, i)
 
-    # Sorting: faces ascending within each die
-    for X in tqdm(range(n)):
-        for Y in range(X):
-            for i in range(d):
-                for j in range(1, d):
-                    solver.add_clause([-V(X, Y, i, j), V(X, Y, i, j-1)])  # horizontal
-            for i in range(d-1):
-                for j in range(d):
-                    solver.add_clause([-V(X, Y, i, j), V(X, Y, i+1, j)])  # vertical
-
-    ids = np.zeros((n, n, d, d), dtype=np.int32)
-    for X in range(n):
-        for Y in range(X, n):
-            for i in range(d):
-                for j in range(d):
-                    vid = pool.id(('v', X, Y, i, j))
-                    ids[X, Y, i, j] = vid
-                    ids[Y, X, j, i] = -vid
-
-    def W(X, Y, i, j): return int(ids[X, Y, i, j])
+    # # Sorting: faces ascending within each die
+    # for X in tqdm(range(n)):
+    #     for Y in range(X):
+    #         for i in range(d):
+    #             for j in range(1, d):
+    #                 solver.add_clause([-V(X, Y, i, j), V(X, Y, i, j-1)])  # horizontal
+    #         for i in range(d-1):
+    #             for j in range(d):
+    #                 solver.add_clause([-V(X, Y, i, j), V(X, Y, i+1, j)])  # vertical
 
     # Transitivity
     for X in tqdm(range(n)):
@@ -70,17 +58,13 @@ def solve(tournament, d):
             for Z in range(n):
                 if Z in (X, Y): continue
                 for i in range(d):
-                    for j in range(d):
-                        for k in range(d):
-                            if abs(i - k) > 2:
-                                continue
-                            solver.add_clause([-V(X, Y, i, j), -V(Y, Z, j, k), V(X, Z, i, k)])
+                    solver.add_clause([-V(X, Y, i, i), -V(Y, Z, i, i), V(X, Z, i, i)])
     # Cardinality (lower-bound only, half the pairs)
-    threshold = d*d // 2 + 1
+    threshold = d // 2 + 1
     for X in tqdm(range(n)):
         for Y in range(n):
             if X == Y or not tournament[X][Y]: continue
-            lits = [V(X, Y, i, j) for i in range(d) for j in range(d)]
+            lits = [V(X, Y, i, i) for i in range(d)]
             card_cnf = CardEnc.atleast(lits=lits, bound=threshold,
                                         encoding=EncType.totalizer, vpool=pool)
             solver.append_formula(card_cnf.clauses)
@@ -124,10 +108,14 @@ if __name__ == "__main__":
     if sol is None:
         print(f"  UNSAT ({dt:.1f}s)")
     else:
-        for i, row in enumerate(sol):
-            print(f"  die {i}: {row}")
-        print(sol)
-        with open(f"n-player/results/p_{p}_f_{d}.txt", "w") as f:
+        # for i, row in enumerate(sol):
+        #     print(f"  die {i}: {row}")
+        #print(sol)
+        if s == p:
+            filename = f"n-player/results/p_{p}_f_{d}_sat.txt"
+        else:
+            filename = f"n-player/results/p_{p}_sub_{s}_f_{d}_sat.txt"
+        with open(filename, "w") as f:
             for die in sol:
                 f.write(" ".join(map(str, die)) + "\n")
 
