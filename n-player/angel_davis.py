@@ -61,4 +61,5 @@ def main():
     print("Verified:", strongly_verify(dice, tournament))
 
 
-main()
+if __name__ == '__main__':
+    main()

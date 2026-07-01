@@ -42,16 +42,6 @@ def solve(tournament, d):
                     V(X, Y, i, j)
                     V(Y, X, j, i)
 
-    # # Sorting: faces ascending within each die
-    # for X in tqdm(range(n)):
-    #     for Y in range(X):
-    #         for i in range(d):
-    #             for j in range(1, d):
-    #                 solver.add_clause([-V(X, Y, i, j), V(X, Y, i, j-1)])  # horizontal
-    #         for i in range(d-1):
-    #             for j in range(d):
-    #                 solver.add_clause([-V(X, Y, i, j), V(X, Y, i+1, j)])  # vertical
-
     # Transitivity
     for X in tqdm(range(n)):
         for Y in range(n):
@@ -76,7 +66,7 @@ def solve(tournament, d):
     dt = time.time() - t0
     if not sat:
         return None, dt
-    model = set(solver.get_model())
+    model = set(solver.get_model())  # type: ignore
     # Reconstruct x_i^X = sum over (Y,j) of [X,Y]_{i,j}
     dice = []
     for X in range(n):
@@ -108,15 +98,12 @@ if __name__ == "__main__":
     if sol is None:
         print(f"  UNSAT ({dt:.1f}s)")
     else:
-        # for i, row in enumerate(sol):
-        #     print(f"  die {i}: {row}")
-        #print(sol)
         if s == p:
             filename = f"n-player/results/p_{p}_f_{d}_sat.txt"
         else:
             filename = f"n-player/results/p_{p}_sub_{s}_f_{d}_sat.txt"
-        with open(filename, "w") as f:
-            for die in sol:
-                f.write(" ".join(map(str, die)) + "\n")
-
+        # with open(filename, "w") as f:
+        #     for die in sol:
+        #         f.write(" ".join(map(str, die)) + "\n")
+        print(sol)
         print(f"  verified: {verify(sol, t)}  ({dt:.1f}s)")
