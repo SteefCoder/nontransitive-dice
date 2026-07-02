@@ -105,9 +105,11 @@ def extend_step(dice: DiceSet, tournament: list[list[int]], extend_set: list[lis
         for j, b in enumerate(B):
             lane_counts[j][b] += 1
         B = [x + lane_counts[j][x] - 1 for j, x in enumerate(B)]
+        M = max(M, max(B))
         blocks = dice_blocks[i] + B + [-b for b in B]
         new_dice.append(blocks)
 
+    
     for i, (A_i, C_i) in enumerate(zip(extend_set, sub_faces)):
         A_i = double(A_i, max_occ)
         a = (ext + lanes)//2
@@ -119,16 +121,20 @@ def extend_step(dice: DiceSet, tournament: list[list[int]], extend_set: list[lis
         blocks = [-x for x in D] + D + C_minus_M + C_plus_M + A_i + neg_A
         new_dice.append(blocks)
 
-    return DiceSet.from_blocks(new_dice, 100_000).minimize()
+    return DiceSet.from_blocks(new_dice, 10_000_000).minimize()
 
 
-def create_tournament(tournament: list[list[int]], seed: DiceSet, extend_set: list[list[int]]):
+def create_tournament(tournament: list[list[int]], seed: DiceSet, extend_set: list[list[int]], show_progress: bool = False):
     step = len(extend_set)
     n = len(tournament)
     assert (n - seed.n) % step == 0
     B_mapping = build_B_mapping(extend_set)
     dice = seed
-    for i in range(seed.n + step, n + 1, step):
+
+    r = range(seed.n + step, n + 1, step)
+    if show_progress:
+        r = tqdm(r)
+    for i in r:
         sub_t = [t[:i] for t in tournament[:i]]
         dice = extend_step(dice, sub_t, extend_set, B_mapping)
     return dice
@@ -171,6 +177,25 @@ def create_p_331():
     print("Strongly verified:", strong)
 
 
+def create_p_1163():
+    tournament = qr_tournament(1163)
+
+    # 41 dice, 11 faces
+    # found with SAT
+    d = [[28, 63, 121, 155, 167, 237, 261, 300, 340, 387, 421], [38, 70, 115, 153, 185, 209, 247, 312, 339, 408, 412], [22, 67, 88, 152, 168, 238, 287, 316, 338, 394, 415], [2, 79, 103, 144, 166, 229, 248, 320, 363, 390, 443], [25, 54, 91, 143, 191, 243, 255, 311, 330, 406, 435], [30, 53, 105, 138, 176, 232, 266, 307, 343, 391, 438], [7, 72, 92, 148, 195, 221, 273, 301, 369, 376, 430], [21, 51, 122, 130, 188, 206, 268, 317, 349, 405, 427], [13, 48, 108, 156, 190, 225, 263, 302, 353, 396, 428], [6, 45, 104, 161, 192, 213, 284, 322, 358, 385, 416], [4, 56, 110, 145, 181, 244, 283, 293, 355, 397, 420], [8, 61, 114, 150, 201, 230, 271, 290, 346, 388, 418], [34, 57, 94, 149, 198, 234, 269, 294, 350, 384, 423], [31, 77, 87, 124, 170, 226, 282, 319, 364, 393, 411], [3, 76, 113, 135, 204, 214, 279, 325, 329, 374, 432], [24, 78, 90, 125, 200, 208, 264, 289, 359, 400, 440], [15, 50, 120, 147, 203, 240, 258, 297, 341, 371, 434], [14, 68, 98, 126, 179, 246, 257, 295, 361, 389, 449], [12, 65, 96, 163, 186, 242, 253, 308, 365, 373, 413], [39, 75, 101, 158, 180, 219, 251, 291, 333, 399, 437], [5, 81, 97, 140, 178, 210, 280, 321, 352, 403, 417], [41, 80, 99, 159, 175, 231, 267, 288, 335, 372, 442], [10, 71, 83, 141, 169, 215, 270, 323, 342, 410, 451], [29, 74, 112, 133, 177, 212, 250, 313, 345, 401, 445], [26, 47, 84, 131, 196, 239, 262, 324, 347, 392, 439], [18, 44, 106, 157, 199, 207, 252, 318, 367, 370, 450], [9, 69, 89, 164, 197, 236, 276, 292, 332, 407, 419], [11, 60, 111, 160, 184, 223, 281, 326, 331, 379, 433], [33, 46, 93, 146, 193, 233, 278, 306, 360, 377, 422], [23, 42, 86, 162, 165, 218, 285, 314, 351, 398, 447], [1, 49, 95, 154, 202, 216, 274, 299, 368, 402, 431], [32, 52, 123, 136, 173, 245, 254, 305, 356, 395, 425], [40, 64, 116, 129, 172, 217, 265, 296, 334, 409, 444], [36, 62, 117, 128, 205, 211, 256, 327, 344, 380, 426], [35, 73, 118, 127, 182, 241, 249, 298, 336, 382, 448], [16, 43, 102, 151, 171, 224, 275, 328, 366, 381, 436], [37, 59, 100, 139, 194, 235, 259, 315, 337, 375, 441], [17, 58, 109, 142, 174, 228, 286, 309, 348, 404, 414], [19, 66, 107, 137, 189, 222, 260, 303, 362, 378, 446], [27, 82, 85, 132, 183, 220, 277, 310, 357, 383, 429], [20, 55, 119, 134, 187, 227, 272, 304, 354, 386, 424]]
+    seed = DiceSet(d)
+
+    p1163 = create_tournament(tournament, seed, EXTEND_SET_11, show_progress=True)
+    faces = p1163.face_counts[0]
+    with open(f"n-player/results/p_1163_f_{faces}.txt", "w") as f:
+        for die in p1163.dice:
+            f.write(" ".join(map(str, die)) + "\n")
+    
+    print("Faces:", faces)
+    print("Written dice to file...")
+    strong = verify(p1163, tournament, show_progress=True)
+    print("Strongly verified:", strong)
+
 def main():
     # dice = construct_paley_dice(47)
     # with open("n-player/results/p_47_f_23.txt", "w") as f:
@@ -180,4 +205,4 @@ def main():
 
 
 if __name__ == '__main__':
-    create_p_331()
+    create_p_1163()
