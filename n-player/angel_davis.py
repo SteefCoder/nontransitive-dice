@@ -1,29 +1,21 @@
-from .helpers import qr_tournament
+from .helpers import paley_tournament, verify
 
-from tqdm import tqdm
+from diceset import DiceSet
 
 
-def strongly_beats(D1, D2):
-    w = sum(1 for a in D1 for b in D2 if a > b)
-
-    return 2*w > len(D1) * len(D2)
-
-def strongly_verify(dice, tournament):
-    n = len(dice)
-    for i in range(n):
-        for j in range(n):
-            if i != j and strongly_beats(dice[i], dice[j]) != bool(tournament[i][j]):
-                return False
-    return True
-
-def construct_tournament(tour):
-    n = len(tour)
+def construct_tournament(tournament: list[list[int]]) -> DiceSet:
+    """
+    Constructs a set of dice realizing `tournament`
+    using the method by Angel and Davis.
+    It will have `n` faces per die.
+    Returns the dice in block form.
+    """
+    n = len(tournament)
     K = n // 2
     Y = [
         [((i - (j + 1)) % n, (i + (j + 1)) % n) for j in range(K)]
         for i in range(n)
     ]
-
     dice = [
         [0 for _ in range(n)]
         for _ in range(n)
@@ -39,7 +31,7 @@ def construct_tournament(tour):
                     a = n*i + 2*(j + 1)
                     b = n*i + 2*(j + 1) + 1
                     y0, y1 = Y[i][j]
-                    if tour[y0][y1]:
+                    if tournament[y0][y1]:
                         dice[y0][i] = b
                         dice[y1][i] = a
                     else:
@@ -47,18 +39,15 @@ def construct_tournament(tour):
                         dice[y1][i] = b
                     break
 
-    return dice
+    return DiceSet.from_blocks(dice)
 
 
 def main():
     p = 1163
-    tournament = qr_tournament(p)
+    tournament = paley_tournament(p)
     dice = construct_tournament(tournament)
-    with open(f"n-player/results/p_{p}_f_{p}_angel.txt", "w") as f:
-        for die in dice:
-            f.write(" ".join(map(str, die)) + "\n")
-
-    print("Verified:", strongly_verify(dice, tournament))
+    dice.to_file(f"n-player/results/p_{p}_f_{p}_angel.txt")
+    print("Verified:", verify(dice, tournament))
 
 
 if __name__ == '__main__':

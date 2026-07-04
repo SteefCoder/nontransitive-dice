@@ -1,109 +1,102 @@
-from pysat.solvers import Minicard, Cadical300, Cadical195, Solver
+import sys
+import time
+
+from pysat.solvers import Cadical300
 from pysat.card import CardEnc, EncType
 from pysat.formula import IDPool
-import time
 from tqdm import tqdm
-import numpy as np
 
-def qr_tournament(p):
-    Q = {i*i % p for i in range(1, p)}
-    return [[1 if (j-i) % p in Q else 0 for j in range(p)] for i in range(p)]
+from .helpers import get_subtournament, paley_tournament, verify
+from diceset import DiceSet
 
-def solve(tournament, d):
+
+def build_model(tournament: list[list[int]], faces: int):
     n = len(tournament)
+    solver = Cadical300()
     pool = IDPool()
 
-    def V(X, Y, i, j):
-        # [X,Y]_{i,j}: face i of X >= face j of Y
-        if j < i:
-            return pool.id('true')
-        if j > i:
-            return pool.id('false')
+    def wins(X: int, Y: int, i: int) -> int:
+        return pool.id((X, Y, i)) if X < Y else -pool.id((Y, X, i))
 
-        return pool.id(('v', X, Y, i, j)) if X < Y else -pool.id(('v', Y, X, j, i))
-
-    solver = Cadical300()
-    # Reflexive
-    for X in range(n):
-        for i in range(d):
-            for j in range(d):
-                lit = V(X, X, i, j)
-                solver.add_clause([lit] if i >= j else [-lit])
-
-    solver.add_clause([pool.id('true')])
-    solver.add_clause([-pool.id('false')])
-
-    for X in tqdm(range(n)):
-        for Y in range(X + 1, n):
-            if X == Y: continue
-            for i in range(d):
-                for j in range(d):
-                    # cache the pool id's
-                    V(X, Y, i, j)
-                    V(Y, X, j, i)
-
-    # Transitivity
     for X in tqdm(range(n)):
         for Y in range(n):
+            if X == Y:
+                continue
+
+            # transitivity constraints
             for Z in range(n):
-                if Z in (X, Y): continue
-                for i in range(d):
-                    solver.add_clause([-V(X, Y, i, i), -V(Y, Z, i, i), V(X, Z, i, i)])
-    # Cardinality (lower-bound only, half the pairs)
-    threshold = d // 2 + 1
-    for X in tqdm(range(n)):
-        for Y in range(n):
-            if X == Y or not tournament[X][Y]: continue
-            lits = [V(X, Y, i, i) for i in range(d)]
-            card_cnf = CardEnc.atleast(lits=lits, bound=threshold,
-                                        encoding=EncType.totalizer, vpool=pool)
+                if Z in (X, Y):
+                    continue
+
+                for i in range(faces):
+                    # for every face i, X > Y and Y > Z implies X > Z
+                    solver.add_clause([-wins(X, Y, i), -wins(Y, Z, i), wins(X, Z, i)])
+
+            # tournament constraints
+            if not tournament[X][Y]:
+                continue
+
+            lits = [wins(X, Y, i) for i in range(faces)]
+            card_cnf = CardEnc.atleast(lits, faces//2 + 1, encoding=EncType.totalizer, vpool=pool)
             solver.append_formula(card_cnf.clauses)
 
+    return solver, wins
+
+
+def solve(tournament: list[list[int]], faces: int) -> DiceSet | None:
+    n = len(tournament)
+
+    solver, wins = build_model(tournament, faces)
+
     print("Starting solve!")
-    t0 = time.time()
     sat = solver.solve()
-    print(solver.accum_stats())
-    dt = time.time() - t0
     if not sat:
-        return None, dt
-    model = set(solver.get_model())  # type: ignore
-    # Reconstruct x_i^X = sum over (Y,j) of [X,Y]_{i,j}
-    dice = []
-    for X in range(n):
-        face_vals = []
-        for i in range(d):
-            v = sum(1 for Y in range(n) for j in range(d) if V(X, Y, i, j) in model)
-            face_vals.append(v)
-        dice.append(sorted(face_vals))
-    return dice, dt
-
-def verify(dice, tournament):
-    n = len(dice)
-    for i in range(n):
-        for j in range(n):
-            if i == j: continue
-            w = sum(1 for a in dice[i] for b in dice[j] if a > b)
-            if bool(tournament[i][j]) != (2*w > len(dice[i])*len(dice[j])): return False
-    return True
-
-if __name__ == "__main__":
-    import sys
-    p = int(sys.argv[1])
-    d = int(sys.argv[2])
+        return None
     
-    s = int(sys.argv[3]) if len(sys.argv) > 3 else p
-    t = [x[:s] for x in qr_tournament(p)[:s]]
-    print(f"P_{p}, d={d}:")
-    sol, dt = solve(t, d)
-    if sol is None:
-        print(f"  UNSAT ({dt:.1f}s)")
+    vars: set[int] = set(solver.get_model())  # type: ignore
+
+    blocks = []
+    for X in range(n):
+        die = []
+        for i in range(faces):
+            v = sum(wins(X, Y, i) in vars for Y in range(n))
+            die.append(v)
+        blocks.append(die)
+    
+    return DiceSet.from_blocks(blocks)
+
+
+def main():
+    p = int(sys.argv[1])
+    
+    tournament = paley_tournament(p)
+    if len(sys.argv) > 3:
+        subsize = int(sys.argv[2])
+        faces = int(sys.argv[3])
+        tournament = get_subtournament(tournament, subsize)
+        print(f"Solving for P_{p} subtournament with {subsize=} and {faces=}.")
     else:
-        if s == p:
-            filename = f"n-player/results/p_{p}_f_{d}_sat.txt"
-        else:
-            filename = f"n-player/results/p_{p}_sub_{s}_f_{d}_sat.txt"
-        # with open(filename, "w") as f:
-        #     for die in sol:
-        #         f.write(" ".join(map(str, die)) + "\n")
-        print(sol)
-        print(f"  verified: {verify(sol, t)}  ({dt:.1f}s)")
+        faces = int(sys.argv[2])
+        subsize = p
+        print(f"Solving for P_{p} subtournament with {faces=}.")
+
+    start = time.time()
+    solution = solve(tournament, faces)
+    end = time.time()
+    if solution is None:
+        print(f"No solution found ({end - start:.02f}s)")
+        return
+    
+    if subsize == p:
+        filename = f"n-player/results/p_{p}_f_{faces}_sat.txt"
+    else:
+        filename = f"n-player/results/p_{p}_sub_{subsize}_f_{faces}_sat.txt"
+
+    solution.to_file(filename)
+
+    print(f"Solution found in {end - start:.02f}s.")
+    print("Verified:", verify(solution, tournament))
+
+
+if __name__ == '__main__':
+    main()
