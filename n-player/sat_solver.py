@@ -6,7 +6,7 @@ from pysat.card import CardEnc, EncType
 from pysat.formula import IDPool
 from tqdm import tqdm
 
-from .helpers import get_subtournament, paley_tournament, verify
+from .helpers import get_subtournament, paley_tournament, verify, qrs, choose_subtournament
 from diceset import DiceSet
 
 
@@ -17,7 +17,7 @@ def build_model(tournament: list[list[int]], faces: int):
 
     def wins(X: int, Y: int, i: int) -> int:
         return pool.id((X, Y, i)) if X < Y else -pool.id((Y, X, i))
-
+    
     for X in tqdm(range(n)):
         for Y in range(n):
             if X == Y:
@@ -30,15 +30,15 @@ def build_model(tournament: list[list[int]], faces: int):
 
                 for i in range(faces):
                     # for every face i, X > Y and Y > Z implies X > Z
-                    solver.add_clause([-wins(X, Y, i), -wins(Y, Z, i), wins(X, Z, i)])
-
-            # tournament constraints
-            if not tournament[X][Y]:
-                continue
-
+                    clause = [-wins(X, Y, i), -wins(Y, Z, i), wins(X, Z, i)]
+                    solver.add_clause(clause)
+    
             lits = [wins(X, Y, i) for i in range(faces)]
-            card_cnf = CardEnc.atleast(lits, faces//2 + 1, encoding=EncType.totalizer, vpool=pool)
-            solver.append_formula(card_cnf.clauses)
+    
+            # tournament constraints
+            if tournament[X][Y]:
+                card_cnf = CardEnc.atleast(lits, faces//2 + 1, encoding=EncType.totalizer, vpool=pool)
+                solver.append_formula(card_cnf.clauses)
 
     return solver, wins
 
@@ -52,7 +52,7 @@ def solve(tournament: list[list[int]], faces: int) -> DiceSet | None:
     sat = solver.solve()
     if not sat:
         return None
-    
+
     vars: set[int] = set(solver.get_model())  # type: ignore
 
     blocks = []
@@ -70,6 +70,10 @@ def main():
     p = int(sys.argv[1])
     
     tournament = paley_tournament(p)
+
+    vertices = [0] + qrs(p)
+    tournament = choose_subtournament(tournament, vertices)
+
     if len(sys.argv) > 3:
         subsize = int(sys.argv[2])
         faces = int(sys.argv[3])
@@ -78,7 +82,7 @@ def main():
     else:
         faces = int(sys.argv[2])
         subsize = p
-        print(f"Solving for P_{p} subtournament with {faces=}.")
+        print(f"Solving for P_{p} tournament with {faces=}.")
 
     start = time.time()
     solution = solve(tournament, faces)
@@ -92,7 +96,7 @@ def main():
     else:
         filename = f"n-player/results/p_{p}_sub_{subsize}_f_{faces}_sat.txt"
 
-    solution.to_file(filename)
+    #solution.to_file(filename)
 
     print(f"Solution found in {end - start:.02f}s.")
     print("Verified:", verify(solution, tournament))

@@ -1,8 +1,10 @@
 import math
 
 from tqdm import tqdm
+import numpy as np
 
 from diceset import DiceSet
+
 
 def is_prime(n: int) -> bool:
     if n < 2:
@@ -40,18 +42,29 @@ def verify(dice: DiceSet, tournament: list[list[int]], show_progress: bool = Fal
     """
     Checks whether a set of dice actually realizes a tournament,
     given that the dice adhere to a block structure. For larger sets,
-    this function should be implemented in C for a speedup (or in numpy, using batching).
+    this function should be implemented in C for a speedup (or in numpy).
     """
-    r = range(dice.n)
-    if show_progress:
-        r = tqdm(r)
+    dice_arr = np.array(dice.dice, dtype=np.int32)
+    tournament_arr = np.array(tournament, dtype=np.bool)
 
-    for i in r:
-        for j in range(dice.n):
-            if i != j and tournament[i][j] and not beats(dice.dice[i], dice.dice[j]):
-                return False
+    r = zip(dice_arr, tournament_arr)
+    if show_progress:
+        r = tqdm(r, total=len(dice_arr))
+
+    for die, t in r:
+        wins = die > dice_arr[t]
+        sums = np.sum(wins, axis=1)
+        if not np.all(sums > dice.faces/2):
+            return False
     return True
 
 
 def get_subtournament(tournament: list[list[int]], subsize: int) -> list[list[int]]:
     return [t[:subsize] for t in tournament[:subsize]]
+
+
+def choose_subtournament(tournament: list[list[int]], vertices: list[int]) -> list[list[int]]:
+    new_tournament = []
+    for v in vertices:
+        new_tournament.append([tournament[v][w] for w in vertices])
+    return new_tournament
