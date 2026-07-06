@@ -36,7 +36,7 @@ class DiceSet:
             t = []
             for d2 in self.dice:
                 wins = sum(a > b for a in d1 for b in d2)
-                t.append(2 * wins > len(d1))
+                t.append(int(2 * wins > len(d1) * len(d2)))
             tournament.append(t)
         return tournament
     

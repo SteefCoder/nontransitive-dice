@@ -19,15 +19,17 @@ def is_prime(n: int) -> bool:
 
 def qrs(p: int) -> list[int]:
     """Returns all quadratic residues of a prime `p`"""
-    assert is_prime(p)
-    return sorted({ i**2 % p for i in range(1, p) })
+    residues = np.unique(np.arange(1, p)**2 % p)
+    residues.sort()
+    return residues.tolist()
 
 
 def paley_tournament(p: int) -> list[list[int]]:
     """Creates the `p`'th Paley tournament using the quadratic residues of `p`."""
-    assert p % 4 == 3 and is_prime(p)
+    #assert p % 4 == 3 and is_prime(p)
     QR = qrs(p)
-    return [[int((j - i) % p in QR) for j in range(p)] for i in range(p)]
+    t = np.subtract.outer(range(p), range(p)) % p
+    return np.isin(t, QR).astype(np.int16).T.tolist()
 
 
 def beats(d1: list[int], d2: list[int]) -> bool:
