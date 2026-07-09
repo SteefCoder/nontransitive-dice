@@ -39,7 +39,7 @@ def find_witnesses(extend_set: list[list[int]]) -> dict[frozenset, list[int]]:
     k = len(extend_set[0])
     slot_vals = [s + 0.5 for s in range(n + 1)]
     mapping = {}
-    for witness_die in itertools.product(slot_vals, repeat=k):
+    for witness_die in tqdm(itertools.product(slot_vals, repeat=k), total=len(slot_vals)**k):
         s = frozenset({ i for i in range(n) if beats(witness_die, extend_set[i]) })  # type: ignore
         if s not in mapping:
             mapping[s] = witness_die

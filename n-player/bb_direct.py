@@ -28,7 +28,6 @@ def build_paley_3mod8(p: int, c: int) -> DiceSet:
 
 
 def find_c(p: int) -> int | None:
-    # try c = p - 2 first
     tournament = paley_tournament(p)
 
     for c in range(p):
@@ -37,6 +36,16 @@ def find_c(p: int) -> int | None:
             return c
 
     return None
+
+def find_all_c(p: int) -> list[int]:
+    tournament = paley_tournament(p)
+
+    valid = []
+    for c in range(p):
+        dice = build_paley_3mod8(p, c)
+        if verify(dice, tournament):
+            valid.append(c)
+    return valid
 
 
 def create_p331():
@@ -51,9 +60,7 @@ def create_p331():
 
 def create_p1163():
     p = 1163
-    c = find_c(p)
-    if not c:
-        return
+    c = 48
     tournament = paley_tournament(p)
     dice = build_paley_3mod8(p, c)
     verified = verify(dice, tournament)
@@ -61,5 +68,13 @@ def create_p1163():
     if verified:
         dice.to_file(f"n-player/results/p_{p}_f_{dice.faces}_newbednay.txt")
 
+
+def main():
+    p = 67
+    c = 65
+    tournament = paley_tournament(p)
+    dice = build_paley_3mod8(p, c)
+    print(f"Verified:", verify(dice, tournament))
+
 if __name__ == '__main__':
-    create_p1163()
+    main()

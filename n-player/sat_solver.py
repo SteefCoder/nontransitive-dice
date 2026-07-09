@@ -70,10 +70,7 @@ def main():
     p = int(sys.argv[1])
     
     tournament = paley_tournament(p)
-
-    vertices = [0] + qrs(p)
-    tournament = choose_subtournament(tournament, vertices)
-
+    
     if len(sys.argv) > 3:
         subsize = int(sys.argv[2])
         faces = int(sys.argv[3])
@@ -96,7 +93,7 @@ def main():
     else:
         filename = f"n-player/results/p_{p}_sub_{subsize}_f_{faces}_sat.txt"
 
-    #solution.to_file(filename)
+    solution.to_file(filename)
 
     print(f"Solution found in {end - start:.02f}s.")
     print("Verified:", verify(solution, tournament))
