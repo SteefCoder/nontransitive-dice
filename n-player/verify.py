@@ -3,19 +3,11 @@ import sys
 import numpy as np
 
 
-def qrs(p: int) -> list[int]:
-    """Returns all quadratic residues of a prime `p`"""
-    residues = np.unique(np.arange(1, p)**2 % p)
-    residues.sort()
-    return residues.tolist()
-
-
 def paley_tournament(p: int):
     """Creates the `p`'th Paley tournament using the quadratic residues of `p`."""
-    #assert p % 4 == 3 and is_prime(p)
-    QR = qrs(p)
+    qrs = np.unique(np.arange(1, p)**2 % p)
     t = np.subtract.outer(range(p), range(p)) % p
-    return np.isin(t, QR).astype(np.bool)
+    return np.isin(t, qrs)
 
 
 def verify(dice: np.ndarray, tournament: np.ndarray) -> bool:
