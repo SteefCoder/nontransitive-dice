@@ -24,10 +24,6 @@ CLAUDE_SUMMARY.md       this file
 README.md               placeholder (to be written)
 requirements.txt        gurobipy, numpy, python-sat, tqdm (see "Dependencies")
 tools/                  Nov 2026, WIP: fresh numpy DiceSet + Tournament classes
-notes/
-  message.md            draft mail to Nick (Jun 30). Best short summary of part 1
-  rules.md              instructions for an AI assistant on how to answer
-  pulp.md               unfinished draft of a PuLP API issue (unrelated)
 
 tournaments/                    PART 1  (run everything from this folder)
   diceset.py                    DiceSet used by n-player/ (blocks, to/from file)
