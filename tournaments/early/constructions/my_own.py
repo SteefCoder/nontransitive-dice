@@ -1,0 +1,1 @@
+def extend_by_5(dice: )
