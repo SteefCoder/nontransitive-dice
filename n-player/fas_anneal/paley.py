@@ -8,6 +8,7 @@ import argparse
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -140,16 +141,22 @@ def cmd_dice(args):
           f"die a beats die b iff b-a is a quadratic residue")
 
 
-def call_solver(p, k, seconds, seed, init, kmin, prefix, quiet=False):
-    cmd = [str(build()), "--p", str(p), "--k", str(k), "--seconds", str(seconds),
-           "--seed", str(seed), "--kmin", str(kmin), "--prefix", prefix]
+def call_solver(p, k, seconds, seed, init, kmin, rounds, prefix, quiet=False):
+    cmd = [str(build()), "--p", str(p), "--k", str(k), "--rounds", str(rounds),
+           "--seconds", str(seconds), "--seed", str(seed), "--kmin", str(kmin),
+           "--prefix", prefix]
     if init:
         cmd += ["--init", str(init)]
-    res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    if not quiet:
-        sys.stdout.write(res.stdout)
-    found = dict(re.findall(r"SOLVED k=(\d+) file=(\S+)", res.stdout))
-    loss = re.search(r"FINAL k=\d+ loss=\d+ best=(\d+)", res.stdout)
+    start = time.time()
+    res = subprocess.Popen(cmd, stdout=subprocess.PIPE, universal_newlines=True)
+    stdout = ""
+    for stdout_line in res.stdout:
+        print(stdout_line, end="")
+        stdout += stdout_line
+    res.stdout.close()
+    res.wait()
+    found = dict(re.findall(r"SOLVED k=(\d+) file=(\S+)", stdout))
+    loss = re.search(r"FINAL k=\d+ loss=\d+ best=(\d+)", stdout)
     return {int(a): b for a, b in found.items()}, int(loss.group(1)) if loss else None
 
 
@@ -164,7 +171,7 @@ def cmd_join(args):
 
 def cmd_solve(args):
     solved, best = call_solver(args.p, args.k, args.seconds, args.seed,
-                               args.init, args.kmin, args.prefix)
+                               args.init, args.kmin, args.rounds, args.prefix)
     if not solved:
         print(f"no solution at k={args.k}; best residual loss {best}")
 
@@ -176,10 +183,10 @@ def cmd_ladder(args):
         attempt = 0
         while attempt < args.retries:
             solved, loss = call_solver(args.p, k, args.seconds, args.seed + attempt,
-                                       init, k, args.prefix, quiet=True)
+                                       init, k, args.rounds, args.prefix, quiet=True)
             if k in solved:
                 best, init = k, solved[k]
-                print(f"k={k:4d}  solved  -> {init}")
+                print("")
                 break
             attempt += 1
             print(f"k={k:4d}  attempt {attempt}/{args.retries} residual loss {loss}")
@@ -198,6 +205,7 @@ def main():
     s.add_argument("p", type=int)
     s.add_argument("k", type=int)
     s.add_argument("--seconds", type=float, default=60)
+    s.add_argument("--rounds", type=int, default=40)
     s.add_argument("--seed", type=int, default=1)
     s.add_argument("--init", help="warm start from a solution file")
     s.add_argument("--kmin", type=int, default=3, help="keep shrinking k down to this")
@@ -210,6 +218,7 @@ def main():
     l.add_argument("--init")
     l.add_argument("--step", type=int, default=2)
     l.add_argument("--seconds", type=float, default=60)
+    l.add_argument("--rounds", type=int, default=40)
     l.add_argument("--seed", type=int, default=1)
     l.add_argument("--retries", type=int, default=3)
     l.add_argument("--kmin", type=int, default=3)

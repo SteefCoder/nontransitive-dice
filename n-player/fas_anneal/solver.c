@@ -151,11 +151,12 @@ static void coordinate_sweep(Solver *s, double beta, double give_back) {
         for (a = 0; a < p; a++) {
             const int *mr = s->margin + (size_t)a * p;
             const signed char *ar = s->adj + (size_t)a * p;
-            int *wr = s->weight + (size_t)a * p;
+            //int *wr = s->weight + (size_t)a * p;
             for (b = a + 1; b < p; b++) {
                 int mm = mr[b] < -14 ? -14 : (mr[b] > 16 ? 16 : mr[b]);
                 int w = table[mm + 14] * ar[b];
-                wr[b] = w; s->weight[(size_t)b * p + a] = -w;
+                //wr[b] = w;
+                s->weight[(size_t)b * p + a] = -w;
             }
         }
         refine_ordering(s, t, p > 600 ? 8 : 30);
@@ -207,26 +208,46 @@ static void anneal(Solver *s, double seconds, double t_hot, double t_cold, int g
     int p = s->p;
     while ((double)(clock() - start) / CLOCKS_PER_SEC < seconds && s->loss > 0) {
         double frac = (double)(clock() - start) / CLOCKS_PER_SEC / seconds;
+
+        // temperature: ?
         double temp = t_hot * pow(t_cold / t_hot, frac);
         long long budget, it;
         collect_violations(s);
         if (s->nviol == 0) return;
-        budget = 4LL * s->nviol + 300;
-        if (budget < 30000) budget = 30000;
-        for (it = 0; it < budget && s->loss > 0; it++) {
+
+        // budget: ?
+        //budget = 1LL * s->nviol + 300;
+        // why at least 30'000?
+        //if (budget < 30000) budget = 30000;
+
+        for (it = 0; it < 10000 && s->loss > 0; it++) {
+            
             int v, t = -1, i, to, roll, tries;
+            // 7 in 8 times, choose a violated pair
+            // and choose an ordering in which it is violated
+            // try 24 times to find such an ordering??
+            // otherwise choose a random one (with a random vertex from the pair)
+            // the other 1 out of 8 times
+            // both the vertex and ordering are random
             if (rnd(s) % 8) {
                 int r = rnd(s) % s->nviol, a = s->va[r], b = s->vb[r];
                 v = (rnd(s) & 1) ? a : b;
-                for (tries = 0; tries < 24; tries++) {
+                for (tries = 0; tries < 50; tries++) {
                     int c = rnd(s) % s->k;
                     if (s->adj[(size_t)a * p + b] *
                         (s->pos[(size_t)c * p + a] > s->pos[(size_t)c * p + b] ? 1 : -1) == -1) { t = c; break; }
                 }
                 if (t < 0) t = rnd(s) % s->k;
             } else { v = rnd(s) % p; t = rnd(s) % s->k; }
+
+            // the rank of v within the chosen ordering
             i = s->pos[(size_t)t * p + v];
+
             roll = rnd(s) % 100;
+            // `greedy_pct` out of 100 times
+            // we find the best position for the vertex and move it there
+            // otherwise, try moving it to a somewhat random position
+            // and only do the move if it is good or the temperature if high enough
             if (roll < greedy_pct) {
                 long long d = best_position(s, t, v, &to);
                 if (to != i) { move_apply(s, t, v, i, to); s->loss += d; }
@@ -240,7 +261,10 @@ static void anneal(Solver *s, double seconds, double t_hot, double t_cold, int g
                 }
                 if (to == i) continue;
                 d = move_delta(s, t, v, i, to);
-                if (d <= 0 || exp(-(double)d / temp) > rnd01(s)) { move_apply(s, t, v, i, to); s->loss += d; }
+                if (d <= 0 || exp(-(double)d / temp) > rnd01(s)) {
+                    move_apply(s, t, v, i, to);
+                    s->loss += d;
+                }
             }
         }
     }
@@ -311,7 +335,7 @@ static int load_solution(Solver *s, const char *path) {
 }
 
 /* Search at the current k; on success shrink k by two and continue. */
-static void run(Solver *s, double seconds, int kmin, const char *prefix) {
+static void run(Solver *s, double seconds, int kmin, int rounds, const char *prefix) {
     size_t bytes = sizeof(int) * (size_t)s->p * s->k;
     int *snapshot = malloc(bytes);
     long long best;
@@ -322,7 +346,7 @@ static void run(Solver *s, double seconds, int kmin, const char *prefix) {
     printf("START p=%d k=%d loss=%lld\n", s->p, s->k, s->loss); fflush(stdout);
     while ((double)(clock() - start) / CLOCKS_PER_SEC < seconds) {
         if (s->loss == 0) {
-            compact(s, seconds / 40.0);
+            compact(s, seconds / rounds);
             s->loss = total_loss(s);
             if (s->loss > 0) continue;
             printf("WASTE k=%d value=%.3f seconds=%.1f\n", s->k,
@@ -336,12 +360,18 @@ static void run(Solver *s, double seconds, int kmin, const char *prefix) {
             memcpy(snapshot, s->ord, bytes);
             continue;
         }
-        if (round < 10) coordinate_sweep(s, 0.50 + 0.12 * (round % 3), 0.05);
+        printf("PROGRESS k=%d loss=%lld best=%lld\n", s->k, s->loss, best);fflush(stdout);
+        // do a coordinate sweep for the first 10 rounds
+        // if (round < 10) coordinate_sweep(s, 0.50 + 0.12 * (round % 3), 0.05);
         s->loss = total_loss(s);
-        anneal(s, seconds / 40.0, round < 10 ? 1.0 : 0.5, 0.03, round < 10 ? 25 : 12);
+
+        // try annealling
+        anneal(s, seconds / rounds, 1 - (0.7 * round) / rounds, 0.03, 4 * round < rounds ? 0 : 0);
         s->loss = total_loss(s); round++;
         if (s->loss < best) { best = s->loss; memcpy(snapshot, s->ord, bytes); }
-        else if (rnd(s) % 3) {
+        else if (rnd(s) % 3 == 0) {
+            // two out of three times, copy the snapshot into the orderings
+            // only if no improvement was found
             memcpy(s->ord, snapshot, bytes);
             memset(s->margin, 0, sizeof(int) * (size_t)s->p * s->p);
             for (t = 0; t < s->k; t++) { sync_positions(s, t); apply_ordering(s, t, +1); }
@@ -361,6 +391,7 @@ int main(int argc, char **argv) {
     Solver s;
     int p = atoi(opt(argc, argv, "--p", "67"));
     int k = atoi(opt(argc, argv, "--k", "15"));
+    int rounds = atoi(opt(argc, argv, "--rounds", "40"));
     double seconds = atof(opt(argc, argv, "--seconds", "60"));
     unsigned seed = (unsigned)atoi(opt(argc, argv, "--seed", "1"));
     int kmin = atoi(opt(argc, argv, "--kmin", "3"));
@@ -378,7 +409,7 @@ int main(int argc, char **argv) {
         s.k = k;
         for (t = 0; t < s.k; t++) { seed_ordering(&s, t); apply_ordering(&s, t, +1); }
     }
-    run(&s, seconds, kmin, prefix);
+    run(&s, seconds, kmin, rounds, prefix);
     solver_free(&s);
     return 0;
 }

@@ -1,4 +1,4 @@
-from .helpers import paley_tournament, verify
+from helpers import paley_tournament, verify
 
 from diceset import DiceSet
 
@@ -43,7 +43,7 @@ def construct_tournament(tournament: list[list[int]]) -> DiceSet:
 
 
 def main():
-    p = 1163
+    p = 19
     tournament = paley_tournament(p)
     dice = construct_tournament(tournament)
     dice.to_file(f"n-player/results/p_{p}_f_{p}_angel.txt")
